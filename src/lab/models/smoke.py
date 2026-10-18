@@ -13,7 +13,6 @@ import argparse
 import json
 from pathlib import Path
 
-from lab.data import analyze_csv
 from lab.schemas import ProfileRegistry
 from lab.schemas.enums import ModelProvider
 
@@ -31,6 +30,8 @@ def data_origin_for(path: Path, demo_dir: Path = ROOT / "datasets" / "demo") -> 
 def run(args: argparse.Namespace) -> list[dict]:
     eps = load_endpoints(args.config)
     registry = ProfileRegistry.from_directory(ROOT / "configs" / "security_profiles")
+    from lab.data import analyze_csv  # lazy: importing this module must not require pandas
+
     path = Path(args.dataset)
     analysis, origin = analyze_csv(path), data_origin_for(path)
     rows = []

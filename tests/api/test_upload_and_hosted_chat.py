@@ -15,7 +15,7 @@ KEY = "sk-test-HOSTED-KEY-never-return-0123456789"
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
-    for var in ("LAB_ALLOW_CLOUD_CHAT", "LAB_ALLOW_CLOUD_EVALUATION", "HF_TOKEN", "HF_MODEL_ID", "HF_BASE_URL",
+    for var in ("LAB_ALLOW_CLOUD_CHAT", "LAB_ALLOW_CLOUD_EVALUATION", "HF_TOKEN", "HF_MODEL_ID", "HF_BASE_URL", "OPENROUTER_API_KEY", "OPENROUTER_MODEL_ID",
                 "CLOUD_MODEL_API_KEY", "CLOUD_MODEL_BASE_URL", "CLOUD_MODEL_ID", "VERCEL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(api_app, "ON_VERCEL", False)

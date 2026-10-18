@@ -9,7 +9,7 @@ CFG = ROOT / "configs" / "models.yaml"
 
 def test_shipped_config_loads_and_holds_no_secret():
     eps = load_endpoints(CFG, env={})
-    assert set(eps) == {"local_lmstudio", "cloud_default", "hf_inference"}
+    assert set(eps) == {"local_lmstudio", "cloud_default", "hf_inference", "openrouter"}
     assert eps["cloud_default"].api_key_env == "CLOUD_MODEL_API_KEY"
     assert "sk-" not in CFG.read_text() and "Bearer" not in CFG.read_text()
 

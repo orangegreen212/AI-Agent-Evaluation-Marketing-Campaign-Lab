@@ -36,12 +36,15 @@ hosted model, because a serverless function cannot reach LM Studio on your PC.
 | `CLOUD_MODEL_BASE_URL` | OpenAI-compatible HTTPS base URL, e.g. `https://api.openai.com/v1` or `https://openrouter.ai/api/v1` |
 | `CLOUD_MODEL_ID` | a chat model id that provider offers |
 
+   OpenRouter has its own endpoint: set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL_ID` (with `LAB_ALLOW_CLOUD_CHAT=1`).
    Hugging Face works the same way with `HF_TOKEN` and `HF_MODEL_ID` (endpoint `hf_inference`).
 3. On Vercel the loopback `local_lmstudio` endpoint is hidden. Messages containing secret patterns (API keys, bearer
    tokens, ...) are still refused before leaving the server. The API has no authentication, so anyone who finds the URL
    can spend your key: set a spend limit at the provider, or put Vercel Deployment Protection in front of the site.
-4. Limits: request bodies up to about 4 MB (CSV upload is capped at 4 MB), function time 60 s (`maxDuration`).
-   Uploaded CSVs are processed in memory/temp storage for one request and are not stored.
+4. CSV files are analyzed in the browser (Analyze page, up to 250 MB), so Vercel's ~4.5 MB request-body limit does not apply
+   and the file never leaves the machine. The Python function serves only endpoints, evaluation and chat (no pandas installed;
+   Vercel installs the dependencies listed in `pyproject.toml`, and `requirements.txt` mirrors them). Function time limit: 60 s.
+5. If an API call returns "A server error has occurred", open the deployment's Runtime Logs in Vercel: the Python traceback is there.
 
 ## A. Local: PowerShell
 

@@ -40,3 +40,17 @@ endpoints:
     structured_output_mode: NONE                 # JSON is validated by the scorers, never trusted as provider-enforced
     price_per_1m_input_usd: null
     price_per_1m_output_usd: null
+  openrouter:
+    provider: CLOUD
+    base_url: https://openrouter.ai/api/v1
+    base_url_env: OPENROUTER_BASE_URL
+    model_id: unconfigured-openrouter-model      # set OPENROUTER_MODEL_ID, e.g. the id shown on the model page at openrouter.ai
+    model_id_env: OPENROUTER_MODEL_ID
+    model_version: unspecified
+    api_key_env: OPENROUTER_API_KEY              # the variable NAME; the key itself lives only in the server environment
+    temperature: 0.3
+    max_output_tokens: 1000
+    timeout_s: 55
+    structured_output_mode: NONE
+    price_per_1m_input_usd: null
+    price_per_1m_output_usd: null

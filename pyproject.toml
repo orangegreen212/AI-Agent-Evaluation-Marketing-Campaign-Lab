@@ -6,11 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "ai-agent-evaluation-safety-lab"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.6", "pyyaml>=6", "pandas>=3.0", "numpy>=1.26"]
+# Runtime core of the HTTP API. Hosted deployments (Vercel reads this file) need fastapi here, and no pandas:
+# CSV analysis runs in the browser. pandas/numpy are only for the Python analytics (extra "analytics", included in "dev").
+dependencies = ["pydantic>=2.6", "pyyaml>=6", "fastapi>=0.110"]
 
 [project.optional-dependencies]
-api = ["fastapi>=0.110", "uvicorn>=0.27"]
-dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110"]
+api = ["uvicorn>=0.27"]
+analytics = ["pandas>=3.0", "numpy>=1.26"]
+dev = ["pytest>=8", "httpx>=0.27", "pandas>=3.0", "numpy>=1.26"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

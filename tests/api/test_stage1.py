@@ -33,7 +33,7 @@ def test_health_reports_configuration_counts(client):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok" and body["api_version"] == "v1"
-    assert body["endpoints_configured"] == 3 and body["security_profiles_loaded"] == 2  # + hf_inference (added with Hugging Face support)
+    assert body["endpoints_configured"] == 4 and body["security_profiles_loaded"] == 2  # + hf_inference (added with Hugging Face support)
 
 
 def test_health_fails_closed_when_endpoint_config_is_broken(monkeypatch):
@@ -55,7 +55,7 @@ def test_endpoints_lists_both_configured_endpoints(client):
     r = client.get("/v1/endpoints")
     assert r.status_code == 200
     names = [e["name"] for e in r.json()["endpoints"]]
-    assert names == ["cloud_default", "hf_inference", "local_lmstudio"]
+    assert names == ["cloud_default", "hf_inference", "local_lmstudio", "openrouter"]
 
 
 def test_endpoints_never_expose_env_names_urls_paths_or_keys(client):
@@ -172,7 +172,8 @@ def test_bad_query_parameter_returns_422_without_echoing_input(client):
 def test_unexpected_failure_is_500_without_internal_details(monkeypatch):
     def boom(*_a, **_k):
         raise RuntimeError("internal detail that must not leak")
-    monkeypatch.setattr(api_app, "analyze_csv", boom)
+    import lab.data as lab_data  # analytics are imported lazily inside the app, so patch the source module
+    monkeypatch.setattr(lab_data, "analyze_csv", boom)
     c = fastapi_testclient.TestClient(create_app(), raise_server_exceptions=False)
     r = c.get("/v1/datasets/demo/analysis")
     assert r.status_code == 500

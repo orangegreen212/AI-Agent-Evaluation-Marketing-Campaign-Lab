@@ -25,7 +25,6 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from lab import __version__
-from lab.data import DataNotAnalyzableError, analyze_csv
 from lab.models.adapter import Transport
 from lab.models.config import load_endpoints
 from lab.models.smoke import ROOT, data_origin_for
@@ -56,6 +55,16 @@ def _origin(url: str) -> str:
     if ":" in host:  # IPv6 literal
         host = f"[{host}]"
     return f"{u.scheme}://{host}" + (f":{u.port}" if u.port else "")
+
+
+def _data():
+    """pandas-backed analytics are imported lazily: chat, evaluation and endpoint routes must keep working on a
+    deployment (such as Vercel) that does not install pandas. The browser analyzes CSV files itself."""
+    try:
+        from lab.data import DataNotAnalyzableError, analyze_csv
+    except ImportError:
+        raise ApiError(503, "ANALYTICS_UNAVAILABLE", "server-side CSV analytics are not installed on this server") from None
+    return DataNotAnalyzableError, analyze_csv
 
 
 def _metric_dict(m) -> dict:
@@ -113,9 +122,10 @@ def create_app(
 
     def demo_analysis():
         if "analysis" not in analysis_cache:
+            not_analyzable, analyze_csv = _data()
             try:
                 analysis_cache["analysis"] = analyze_csv(dataset_path)
-            except (DataNotAnalyzableError, OSError):
+            except (not_analyzable, OSError):
                 raise ApiError(503, "DATASET_UNAVAILABLE", "demo dataset could not be analyzed") from None
         return analysis_cache["analysis"]
 
@@ -221,13 +231,14 @@ def create_app(
         if not body.strip():
             raise ApiError(400, "EMPTY_FILE", "the uploaded file is empty")
 
+        not_analyzable, analyze_csv = _data()
         with tempfile.TemporaryDirectory(prefix="lab-upload-") as tmp:
             path = Path(tmp) / "upload.csv"
             path.write_bytes(body)
             try:
                 a = analyze_csv(path)
                 v, issues = a.validation, a.validation.issues
-            except DataNotAnalyzableError as err:
+            except not_analyzable as err:
                 a, v, issues = None, err.result, err.result.issues
 
         dataset_id = f"upload-{v.dataset_sha256[:16]}"

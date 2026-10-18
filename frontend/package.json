@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test": "npx --yes tsx --tsconfig tsconfig.app.json --test tests/chatState.test.ts tests/chatFlow.test.ts tests/apiClient.test.ts tests/analysisAdapter.test.ts"
+    "test": "npx --yes tsx --tsconfig tsconfig.app.json --test tests/chatState.test.ts tests/chatFlow.test.ts tests/apiClient.test.ts tests/analysisAdapter.test.ts tests/csvAnalysis.test.ts"
   },
   "dependencies": {
     "lucide-react": "^0.446.0",

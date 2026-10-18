@@ -1,6 +1,4 @@
-# Runtime dependencies for the Vercel Python function (api/index.py). Local dev uses pyproject.toml.
+# Runtime dependencies for the Vercel Python function (api/index.py). No pandas on purpose: CSV analysis runs in the browser. Local dev uses pyproject.toml.
 fastapi>=0.110
 pydantic>=2.6
 pyyaml>=6
-pandas>=3.0
-numpy>=1.26

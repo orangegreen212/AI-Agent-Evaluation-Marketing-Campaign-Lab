@@ -3,7 +3,7 @@
  *
  * LIVE (FastAPI backend):
  *   health, getDemoDataset, getDemoAnalysis         Analyze (read-only demo dataset)
- *   analyzeCsv                                      Analyze (upload: raw CSV text in the request body)
+ *   analyzeCsv                                      optional server-side CSV analysis (needs pandas on the server; the Analyze page analyzes in the browser instead, see csvAnalysis.ts)
  *   getEndpoints, getTestSuites, runEvaluation      Evaluate & Safety (synthetic suite, one model per run)
  *   sendChat                                        Agent Chat (local endpoints only; see backend policy)
  *
@@ -47,7 +47,7 @@ const API_BASE_URL = normalizeBaseUrl(import.meta.env?.VITE_API_BASE_URL as stri
 
 /** Which data source each view uses. Keep in sync with the views and the README. */
 export const dataSourceByView = {
-  analyze: 'live',
+  analyze: 'browser',
   evaluate: 'live',
   chat: 'live',
   compare: 'demo',
