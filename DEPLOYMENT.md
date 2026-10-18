@@ -15,8 +15,33 @@ Why C cannot chat: chat messages may be sent only to LOCAL endpoints, and a LOCA
 (enforced in `configs`/`ModelEndpoint`). A remote server therefore cannot reach your LM Studio, and sending chat text to
 Hugging Face or OpenRouter is blocked by the transfer policy. This repository does not weaken that.
 
-Vercel only serves the static frontend. It does **not** run the Python backend, and a page served by Vercel cannot reach
-a service that is only listening on someone else's `localhost`.
+With the old frontend-only setup Vercel served just the static page (so `/v1/*` returned 404). Section D below runs the
+Python API on Vercel as well. A page served by Vercel still cannot reach a service listening on someone's `localhost`.
+
+## D. Everything on Vercel (frontend + Python API + hosted chat)
+
+The repository root now contains `vercel.json`, `api/index.py` and `requirements.txt`. Vercel builds the Vite frontend
+and runs the FastAPI app as a serverless function; `/v1/*` is rewritten to it, so the browser talks to its own origin
+(no CORS, `VITE_API_BASE_URL` stays empty). Analyze (demo + CSV upload) and Evaluate work out of the box. Chat needs a
+hosted model, because a serverless function cannot reach LM Studio on your PC.
+
+1. Vercel project settings: **Root Directory = repository root** (empty, not `frontend`), Framework Preset: Other.
+   The build/output commands come from `vercel.json`.
+2. Environment variables (Project Settings, Environment Variables), then redeploy:
+
+| Name | Value |
+|---|---|
+| `LAB_ALLOW_CLOUD_CHAT` | `1` (explicit opt-in: chat text is sent to the provider below) |
+| `CLOUD_MODEL_API_KEY` | your provider key (server-side only; never a `VITE_*` variable) |
+| `CLOUD_MODEL_BASE_URL` | OpenAI-compatible HTTPS base URL, e.g. `https://api.openai.com/v1` or `https://openrouter.ai/api/v1` |
+| `CLOUD_MODEL_ID` | a chat model id that provider offers |
+
+   Hugging Face works the same way with `HF_TOKEN` and `HF_MODEL_ID` (endpoint `hf_inference`).
+3. On Vercel the loopback `local_lmstudio` endpoint is hidden. Messages containing secret patterns (API keys, bearer
+   tokens, ...) are still refused before leaving the server. The API has no authentication, so anyone who finds the URL
+   can spend your key: set a spend limit at the provider, or put Vercel Deployment Protection in front of the site.
+4. Limits: request bodies up to about 4 MB (CSV upload is capped at 4 MB), function time 60 s (`maxDuration`).
+   Uploaded CSVs are processed in memory/temp storage for one request and are not stored.
 
 ## A. Local: PowerShell
 
@@ -133,4 +158,5 @@ and Hugging Face calls, and any Vercel deployment.
 - No React component or browser test exists; the journey tests cover the client and state logic, not rendering.
 - Chat history lives in the browser tab only. Reloading clears it.
 - The API has no authentication. It is designed for a single local user.
-- CSV upload and Compare Models are not implemented (Compare is a labelled demo).
+- Compare Models is a labelled demo. CSV upload (Analyze) is implemented: up to 4 MB, analyzed in memory, nothing stored.
+- Hosted chat is opt-in (`LAB_ALLOW_CLOUD_CHAT=1`) and sends messages to the configured provider; the default stays local-only.

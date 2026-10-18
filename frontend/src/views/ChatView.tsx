@@ -30,8 +30,8 @@ export function ChatView() {
   const endRef = useRef<HTMLDivElement>(null);
 
   // Only endpoints that accept user messages are offered. The backend enforces this too.
-  const localEndpoints = endpoints.filter((e) => e.accepts_user_data);
-  const selected = localEndpoints.find((e) => e.name === endpoint) ?? null;
+  const chatEndpoints = endpoints.filter((e) => e.accepts_user_data);
+  const selected = chatEndpoints.find((e) => e.name === endpoint) ?? null;
 
   const loadEndpoints = useCallback(async () => {
     setOptionsError('');
@@ -112,7 +112,7 @@ export function ChatView() {
 
       <Panel
         title="Model"
-        subtitle="Messages go only to local model endpoints, and LM Studio must be running on the machine where the backend runs. Hosted models are blocked for chat by the transfer policy."
+        subtitle="Local endpoints keep your messages on the machine where the backend runs. A hosted endpoint (available only when the operator enabled it) sends your messages to that provider."
         actions={
           selected ? (
             <Badge variant="info">
@@ -125,19 +125,24 @@ export function ChatView() {
           <ErrorState title="Could not load model endpoints" message={optionsError} onRetry={loadEndpoints} />
         ) : !loaded ? (
           <LoadingState label="Loading model endpoints…" />
-        ) : localEndpoints.length === 0 ? (
+        ) : chatEndpoints.length === 0 ? (
           <EmptyState
-            title="No local model endpoint is configured"
-            description="Start LM Studio and configure the backend (LM_STUDIO_BASE_URL, LM_STUDIO_MODEL_ID). Hosted models cannot receive chat messages under the current policy."
+            title="No chat model is available"
+            description="Locally: start LM Studio and set LM_STUDIO_BASE_URL and LM_STUDIO_MODEL_ID. On Vercel: set LAB_ALLOW_CLOUD_CHAT=1, CLOUD_MODEL_API_KEY, CLOUD_MODEL_BASE_URL and CLOUD_MODEL_ID in the project's environment variables, then redeploy."
           />
         ) : (
-          <Select label="Local model endpoint" value={endpoint} onChange={setEndpoint}>
-            {localEndpoints.map((e) => (
+          <Select label="Model endpoint" value={endpoint} onChange={setEndpoint}>
+            {chatEndpoints.map((e) => (
               <option key={e.name} value={e.name}>
                 {e.name} — {e.provider} ({e.model_id})
               </option>
             ))}
           </Select>
+        )}
+        {selected?.provider === 'CLOUD' && (
+          <p className="mt-3 rounded-lg border border-warning-500/30 bg-warning-500/5 px-3 py-2 text-xs text-warning-400">
+            Hosted model: your messages are sent to {selected.base_url_origin}. Do not enter secrets or personal data.
+          </p>
         )}
       </Panel>
 

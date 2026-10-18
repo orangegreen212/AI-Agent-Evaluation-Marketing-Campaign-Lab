@@ -72,7 +72,7 @@ export interface EndpointDto {
   name: string;
   provider: 'LOCAL' | 'CLOUD';
   data_locality: 'LOCAL_MACHINE' | 'EXTERNAL_PROVIDER';
-  accepts_user_data: boolean; // false for every CLOUD endpoint
+  accepts_user_data: boolean; // LOCAL: true. CLOUD: true only when the operator enabled cloud chat (LAB_ALLOW_CLOUD_CHAT=1) and a key is set
   model_id: string;
   model_version: string;
   base_url_origin: string; // scheme://host[:port] only
@@ -173,4 +173,24 @@ export interface ChatReplyDto {
 /** Error envelope returned by the backend for every non-2xx response. */
 export interface ErrorEnvelope {
   error: { code: string; message: string };
+}
+
+/** One validation issue, as returned by POST /v1/datasets/analyze. Messages never contain raw cell values. */
+export interface IssueDto {
+  code: string;
+  severity: 'FATAL' | 'WARNING';
+  column: string | null;
+  count: number;
+  message: string;
+  sample_rows: number[]; // 1-based data-row numbers, at most 5
+}
+
+/**
+ * POST /v1/datasets/analyze (raw CSV body). `analysis` is null when the file has fatal issues; `issues` is then
+ * the list of what to fix. `dataset.period` is null when no row had a valid date.
+ */
+export interface UploadAnalysisResponse {
+  dataset: Omit<DemoDatasetResponse, 'period'> & { period: PeriodDto | null };
+  analysis: (Omit<DemoAnalysisResponse, 'period'> & { period: PeriodDto | null }) | null;
+  issues: IssueDto[];
 }

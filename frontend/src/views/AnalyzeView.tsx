@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { FileSpreadsheet, FileUp, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import { toAnalyzeViewData, type AnalyzeViewData } from '@/lib/analysisAdapter';
+import { toAnalyzeViewData, toUploadViewData, type AnalyzeViewData } from '@/lib/analysisAdapter';
 import type { HealthResponse } from '@/types/backend';
 import {
   Panel,
@@ -17,6 +18,7 @@ import { formatNumber } from '@/lib/utils';
 
 type Phase = 'idle' | 'loading' | 'success' | 'error';
 
+const MAX_UPLOAD_BYTES = 4_000_000; // the server and Vercel both reject larger request bodies
 const REQUIRED_COLUMNS = 'date, campaign, channel, impressions, clicks, spend, conversions, revenue';
 
 export function AnalyzeView() {
@@ -24,6 +26,37 @@ export function AnalyzeView() {
   const [data, setData] = useState<AnalyzeViewData | null>(null);
   const [backend, setBackend] = useState<HealthResponse | null>(null);
   const [error, setError] = useState('');
+  const [source, setSource] = useState<'demo' | 'upload'>('demo');
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onFile = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // lets the same file be chosen again after a fix
+    if (!file) return;
+    setUploadError('');
+    if (!/\.csv$/i.test(file.name)) {
+      setUploadError('Choose a .csv file.');
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError(`The file is ${(file.size / 1e6).toFixed(1)} MB; the limit is ${MAX_UPLOAD_BYTES / 1e6} MB.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const text = await file.text();
+      const res = await apiClient.analyzeCsv(text, file.name);
+      setData(toUploadViewData(res));
+      setSource('upload');
+      setPhase('success');
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'The file could not be analyzed.');
+    } finally {
+      setUploading(false);
+    }
+  }, []);
 
   // Health, dataset summary and overall analysis are loaded together. Any failure is shown, never swallowed.
   const load = useCallback(async () => {
@@ -37,6 +70,7 @@ export function AnalyzeView() {
       ]);
       setBackend(health);
       setData(toAnalyzeViewData(dataset, analysis));
+      setSource('demo');
       setPhase('success');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load the demo dataset analysis.');
@@ -50,10 +84,10 @@ export function AnalyzeView() {
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Analyze</h1>
           <p className="mt-1 text-sm text-ink-400">
-            Validation and overall metrics for the bundled demo dataset, computed by the local backend.
+            Validation and overall metrics for the bundled demo dataset or for a CSV you upload, computed by the backend.
           </p>
         </div>
-        {phase === 'success' && (
+        {phase === 'success' && source === 'demo' && (
           <Button
             size="sm"
             variant="ghost"
@@ -65,21 +99,40 @@ export function AnalyzeView() {
         )}
       </div>
 
-      <DemoBanner message="Source: local backend, synthetic demo dataset (SYNTHETIC_DEMO). Nothing is uploaded. CSV upload is not implemented yet." />
+      <DemoBanner
+        message={
+          source === 'upload' && phase === 'success'
+            ? 'Source: your uploaded CSV (USER_DATA). It was validated and analyzed in memory by the backend and is not stored or sent to any model.'
+            : 'Source: synthetic demo dataset (SYNTHETIC_DEMO), or upload your own CSV below.'
+        }
+      />
 
-      {/* Upload: visibly unavailable. No request is made from this control. */}
-      <Panel title="Upload a CSV" subtitle="Not implemented yet" actions={<Badge variant="neutral">Unavailable</Badge>}>
-        <p className="text-sm text-ink-300">
-          The backend has no upload route, so a file cannot be analyzed or sent anywhere from this page.
-        </p>
-        <p className="mt-2 text-xs text-ink-500">
-          When upload exists, the required columns will be: {REQUIRED_COLUMNS}.
-        </p>
-        <div className="mt-4">
-          <Button variant="secondary" icon={<FileUp className="h-4 w-4" />} disabled>
-            Upload (not implemented)
-          </Button>
-        </div>
+      <Panel
+        title="Upload a CSV"
+        subtitle={`Required columns: ${REQUIRED_COLUMNS}. Dates as YYYY-MM-DD. Up to ${MAX_UPLOAD_BYTES / 1e6} MB.`}
+        actions={<Badge variant="info">Analyzed in memory, not stored</Badge>}
+      >
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="sr-only"
+          aria-label="CSV file"
+          onChange={(e) => void onFile(e)}
+        />
+        <Button
+          variant="secondary"
+          icon={<FileUp className="h-4 w-4" />}
+          loading={uploading}
+          onClick={() => fileRef.current?.click()}
+        >
+          Choose CSV file
+        </Button>
+        {uploadError && (
+          <div role="alert" className="mt-3 rounded-lg border border-danger-500/30 bg-danger-500/5 px-3 py-2 text-sm text-danger-300">
+            {uploadError}
+          </div>
+        )}
       </Panel>
 
       {phase === 'idle' && (
@@ -101,12 +154,20 @@ export function AnalyzeView() {
         <ErrorState title="Could not load the demo analysis" message={error} onRetry={load} />
       )}
 
-      {phase === 'success' && data && <AnalyzeResults data={data} backend={backend} />}
+      {phase === 'success' && data && <AnalyzeResults data={data} backend={source === 'demo' ? backend : null} source={source} />}
     </div>
   );
 }
 
-function AnalyzeResults({ data, backend }: { data: AnalyzeViewData; backend: HealthResponse | null }) {
+function AnalyzeResults({
+  data,
+  backend,
+  source,
+}: {
+  data: AnalyzeViewData;
+  backend: HealthResponse | null;
+  source: 'demo' | 'upload';
+}) {
   const v = data.validation;
   const statusBadge =
     v.status === 'VALID' ? (
@@ -121,7 +182,7 @@ function AnalyzeResults({ data, backend }: { data: AnalyzeViewData; backend: Hea
     <div className="space-y-5">
       <Panel
         title="Dataset validation"
-        subtitle={`${data.filename} · ${data.period.start} → ${data.period.end} · ${data.origin}`}
+        subtitle={`${data.filename} · ${data.period ? `${data.period.start} → ${data.period.end}` : 'no valid dates'} · ${data.origin}`}
         actions={statusBadge}
       >
         <div className="mb-4 flex flex-wrap gap-3">
@@ -141,14 +202,36 @@ function AnalyzeResults({ data, backend }: { data: AnalyzeViewData; backend: Hea
             <dd className="mt-0.5 break-all font-mono text-xs text-ink-100">{v.sha256}</dd>
           </div>
         </dl>
-        <p className="mt-4 text-2xs text-ink-500">
-          The backend returns issue counts only, not the individual issues, so none are listed here.
-        </p>
+        {data.issues.length > 0 ? (
+          <ul className="mt-4 space-y-1.5 text-sm">
+            {data.issues.map((i) => (
+              <li key={`${i.code}-${i.column ?? ''}`} className="flex items-start gap-2">
+                <Badge variant={i.severity === 'FATAL' ? 'danger' : 'warning'}>{i.severity === 'FATAL' ? 'Error' : 'Warning'}</Badge>
+                <span className="text-ink-200">
+                  {i.message}
+                  {i.sample_rows.length > 0 ? (
+                    <span className="text-ink-500"> (e.g. data rows {i.sample_rows.join(', ')})</span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : source === 'demo' ? (
+          <p className="mt-4 text-2xs text-ink-500">
+            The demo route returns issue counts only, not the individual issues, so none are listed here.
+          </p>
+        ) : (
+          <p className="mt-4 text-sm text-ink-300">No validation issues found.</p>
+        )}
       </Panel>
 
       <Panel title="Overall metrics" subtitle="Scope: overall (all rows in the dataset)">
         {data.metrics.length === 0 ? (
-          <p className="text-sm text-ink-400">The backend returned no overall metrics.</p>
+          <p className="text-sm text-ink-400">
+            {data.validation.canAnalyze
+              ? 'The backend returned no overall metrics.'
+              : 'No metrics: the file has errors that must be fixed first (see the list above).'}
+          </p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.metrics.map((m) => (
@@ -175,7 +258,7 @@ function AnalyzeResults({ data, backend }: { data: AnalyzeViewData; backend: Hea
       )}
 
       <p className="text-2xs text-ink-500">
-        Source: GET /v1/datasets/demo and GET /v1/datasets/demo/analysis
+        Source: {source === 'demo' ? 'GET /v1/datasets/demo and GET /v1/datasets/demo/analysis' : 'POST /v1/datasets/analyze'}
         {backend ? ` · backend ${backend.package_version} (API ${backend.api_version})` : ''}.
       </p>
     </div>

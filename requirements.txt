@@ -1,0 +1,6 @@
+# Runtime dependencies for the Vercel Python function (api/index.py). Local dev uses pyproject.toml.
+fastapi>=0.110
+pydantic>=2.6
+pyyaml>=6
+pandas>=3.0
+numpy>=1.26

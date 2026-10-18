@@ -3,22 +3,26 @@
  *
  * LIVE (FastAPI backend):
  *   health, getDemoDataset, getDemoAnalysis         Analyze (read-only demo dataset)
+ *   analyzeCsv                                      Analyze (upload: raw CSV text in the request body)
  *   getEndpoints, getTestSuites, runEvaluation      Evaluate & Safety (synthetic suite, one model per run)
  *   sendChat                                        Agent Chat (local endpoints only; see backend policy)
  *
  * DEMO ONLY (fixtures in src/demo, no network call):
  *   listModels, listDemoTestSuites, compare         Compare Models
  *
- * NOT IMPLEMENTED: CSV upload. Nothing is sent.
+ * Hosted on Vercel the backend runs as a serverless function on the same origin (see vercel.json), so
+ * VITE_API_BASE_URL stays empty there too.
  *
  * Base URL: VITE_API_BASE_URL (read at build time).
- *   - empty: requests are relative (/v1/...). Works only where something serves /v1: the Vite dev server (proxy to
- *     127.0.0.1:8000) or `vite preview`. On a static host such as Vercel nothing answers /v1, and the UI says so.
+ *   - empty: requests are relative (/v1/...). Works where something serves /v1: the Vite dev server (proxy to
+ *     127.0.0.1:8000), `vite preview`, or the Vercel project with the Python function from /api. On a purely static
+ *     host nothing answers /v1, and the UI says so.
  *   - set: requests go to that origin; the backend must allow this site's origin in LAB_CORS_ORIGINS.
  * Secrets never appear in this file or in any VITE_* variable (Vite embeds those in the browser bundle).
  */
 
 import type {
+  UploadAnalysisResponse,
   ChatReplyDto,
   DemoAnalysisResponse,
   DemoDatasetResponse,
@@ -129,8 +133,18 @@ export function createLiveClient(baseUrl: string, fetchImpl: FetchLike = default
       body: JSON.stringify(payload),
     });
 
+  const postText = <T>(path: string, text: string) =>
+    request<T>(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv; charset=utf-8', Accept: 'application/json' },
+      body: text,
+    });
+
   return {
     // ---- analyze ---------------------------------------------------------------------------------------------
+    /** Uploads CSV text for validation and analysis. The server keeps nothing after the response. */
+    analyzeCsv: (csvText: string, filename: string) =>
+      postText<UploadAnalysisResponse>(`/v1/datasets/analyze?filename=${encodeURIComponent(filename)}`, csvText),
     health: () => getJson<HealthResponse>('/v1/health'),
     getDemoDataset: () => getJson<DemoDatasetResponse>('/v1/datasets/demo'),
     getDemoAnalysis: () => getJson<DemoAnalysisResponse>('/v1/datasets/demo/analysis'),

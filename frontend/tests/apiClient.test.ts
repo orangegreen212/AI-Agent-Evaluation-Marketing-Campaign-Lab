@@ -112,6 +112,15 @@ test('a chat response without a reply is rejected, so an empty assistant bubble 
   assert.equal(err.code, 'INVALID_RESPONSE');
 });
 
+test('analyzeCsv posts the raw CSV text with a text/csv content type and the encoded filename', async () => {
+  const f = fakeFetch(() => json({ dataset: {}, analysis: null, issues: [] }));
+  await createLiveClient('', f.fetch).analyzeCsv('date,campaign\n', 'my file.csv');
+  assert.equal(f.calls[0].url, '/v1/datasets/analyze?filename=my%20file.csv');
+  assert.equal(f.calls[0].init?.method, 'POST');
+  assert.equal(f.calls[0].init?.body, 'date,campaign\n');
+  assert.match(String((f.calls[0].init?.headers as Record<string, string>)['Content-Type']), /^text\/csv/);
+});
+
 test('no credential-like strings exist anywhere in the frontend source', () => {
   const root = join(process.cwd(), 'src');
   const forbidden = [/HF_TOKEN/, /\bhf_[A-Za-z0-9]{10,}/, /\bsk-[A-Za-z0-9_-]{20,}/, /Bearer\s/, /Authorization/i];

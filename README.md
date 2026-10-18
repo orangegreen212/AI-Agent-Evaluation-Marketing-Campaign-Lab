@@ -44,7 +44,7 @@ Copy `.env.example` to `.env` if you use a `.env` loader. Never commit real valu
 
 The React frontend in `frontend/` connects to this API through the Vite dev-server proxy. Only the
 **Analyze** page uses the backend (demo dataset: `GET /v1/datasets/demo` and `GET /v1/datasets/demo/analysis`).
-Evaluate & Safety and Compare Models are demo-only, and CSV upload is not implemented.
+Analyze also accepts a CSV upload (`POST /v1/datasets/analyze`). Compare Models is demo-only.
 
     # Terminal 1, from lab/
     python -m lab.api --port 8000

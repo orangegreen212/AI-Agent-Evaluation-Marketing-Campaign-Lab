@@ -9,7 +9,14 @@
  *  - Metrics the backend marks as not OK have value null; they are shown as "—" with the reason.
  */
 
-import type { DemoAnalysisResponse, DemoDatasetResponse, DemoMetricDto, PeriodDto } from '@/types/backend';
+import type {
+  DemoAnalysisResponse,
+  DemoDatasetResponse,
+  DemoMetricDto,
+  IssueDto,
+  PeriodDto,
+  UploadAnalysisResponse,
+} from '@/types/backend';
 import { formatNumber } from '@/lib/utils';
 
 export interface ViewMetric {
@@ -24,7 +31,7 @@ export interface AnalyzeViewData {
   datasetId: string;
   origin: string;
   filename: string;
-  period: PeriodDto;
+  period: PeriodDto | null; // null when no row had a valid date
   validation: {
     status: DemoDatasetResponse['validation']['status'];
     canAnalyze: boolean;
@@ -38,6 +45,7 @@ export interface AnalyzeViewData {
   };
   metrics: ViewMetric[];
   limitations: string[]; // unique, in backend order
+  issues: IssueDto[]; // empty for the demo dataset (the demo route returns counts only)
 }
 
 const LABELS: Record<string, string> = {
@@ -126,5 +134,39 @@ export function toAnalyzeViewData(
     },
     metrics,
     limitations,
+    issues: [],
+  };
+}
+
+/** Upload response -> the same view model. A rejected file has no metrics and carries its issue list. */
+export function toUploadViewData(res: UploadAnalysisResponse): AnalyzeViewData {
+  const { dataset, analysis, issues } = res;
+  const overall = (analysis?.metrics ?? []).filter((m) => m.scope === 'overall');
+  const rank = (id: string) => {
+    const i = ORDER.indexOf(id);
+    return i === -1 ? ORDER.length : i;
+  };
+  const limitations: string[] = [];
+  for (const m of overall) for (const lim of m.limitations) if (!limitations.includes(lim)) limitations.push(lim);
+  const v = dataset.validation;
+  return {
+    datasetId: dataset.dataset_id,
+    origin: dataset.origin,
+    filename: dataset.filename,
+    period: dataset.period,
+    validation: {
+      status: v.status,
+      canAnalyze: v.can_analyze,
+      sha256: v.dataset_sha256,
+      rowsRead: v.rows_read,
+      rowsAccepted: v.rows_accepted,
+      duplicateRows: v.duplicate_row_count,
+      issueCount: v.issue_count,
+      fatalErrorCount: v.fatal_error_count,
+      warningCount: v.warning_count,
+    },
+    metrics: [...overall].sort((a, b) => rank(a.metric_id) - rank(b.metric_id)).map(toViewMetric),
+    limitations,
+    issues,
   };
 }

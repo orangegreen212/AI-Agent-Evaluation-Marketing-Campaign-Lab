@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { toAnalyzeViewData } from '@/lib/analysisAdapter';
+import { toAnalyzeViewData, toUploadViewData } from '@/lib/analysisAdapter';
 import type { DemoAnalysisResponse, DemoDatasetResponse } from '@/types/backend';
 
 // Shapes follow src/lab/api/app.py handlers (hand-written: no live server in the test).
@@ -47,4 +47,32 @@ test('undefined metrics show a dash and the backend reason', () => {
 
 test('mismatched dataset and analysis are rejected', () => {
   assert.throws(() => toAnalyzeViewData(dataset, { ...analysis, dataset_id: 'other' }), /mismatched/);
+});
+
+test('a rejected upload maps to a view model with no metrics and its issue list', () => {
+  const view = toUploadViewData({
+    dataset: { dataset_id: 'upload-abc', origin: 'USER_DATA', filename: 'x.csv', period: null, analysis_url: '',
+      validation: { status: 'INVALID', can_analyze: false, dataset_sha256: 'b'.repeat(64), rows_read: 0, rows_accepted: 0,
+        duplicate_row_count: 0, issue_count: 1, fatal_error_count: 1, warning_count: 0 } },
+    analysis: null,
+    issues: [{ code: 'MISSING_COLUMN', severity: 'FATAL', column: 'spend', count: 1, message: 'required column spend is missing', sample_rows: [] }],
+  });
+  assert.equal(view.period, null);
+  assert.deepEqual(view.metrics, []);
+  assert.equal(view.issues[0].code, 'MISSING_COLUMN');
+  assert.equal(view.validation.canAnalyze, false);
+});
+
+test('an accepted upload keeps only overall metrics, sorted for display', () => {
+  const m = (id: string, scope: string, value: number) => ({
+    calc_id: `c.${id}.${scope}`, metric_id: id, scope, group_key: scope === 'overall' ? null : 'g', value, status: 'OK' as const,
+    unit: 'count', formula: `sum(${id})`, period, value_undefined_reason: null, limitations: [],
+  });
+  const view = toUploadViewData({
+    dataset: { ...dataset, dataset_id: 'upload-abc', origin: 'USER_DATA', period },
+    analysis: { dataset_id: 'upload-abc', origin: 'USER_DATA', period, include_groups: false, metric_count: 3,
+      metrics: [m('clicks', 'overall', 5), m('roas', 'channel', 2), m('roas', 'overall', 2)] },
+    issues: [],
+  });
+  assert.deepEqual(view.metrics.map((x) => x.id), ['roas', 'clicks']);
 });
