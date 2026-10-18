@@ -104,14 +104,16 @@ def _emit(event: str, **fields) -> None:
 
 def enforce_transfer_policy(
     profile: SecurityProfile, endpoint: ModelEndpoint, messages: Messages, data_origin: DataOrigin,
-    canaries: Mapping[str, str] | None = None,
+    canaries: Mapping[str, str] | None = None, *, allow_user_data_to_cloud: bool = False,
 ) -> None:
     if endpoint.provider == ModelProvider.LOCAL:
         return  # data stays on this machine
     if not profile.external_data_transfer:
         raise ModelCallError(FailureKind.TRANSFER_BLOCKED,
                              f"profile {profile.security_profile_id} v{profile.version} forbids external data transfer")
-    if data_origin != DataOrigin.SYNTHETIC_DEMO:
+    # USER_DATA reaches a cloud model only when the operator has opted in (LAB_ALLOW_CLOUD_CHAT=1, chat route only).
+    # The secret-pattern and canary checks below still apply.
+    if data_origin != DataOrigin.SYNTHETIC_DEMO and not allow_user_data_to_cloud:
         raise ModelCallError(FailureKind.TRANSFER_BLOCKED, "only synthetic demo data may be sent to a cloud model")
     text = "\n".join(m.get("content", "") for m in messages)
     if find_secret_types(text, profile.secret_detection_policy):
@@ -124,11 +126,12 @@ class OpenAICompatAdapter:
     def __init__(
         self, endpoint: ModelEndpoint, profile: SecurityProfile, *, prompt_version: str,
         transport: Transport = urllib_transport, env: Mapping[str, str] | None = None,
-        canaries: Mapping[str, str] | None = None,
+        canaries: Mapping[str, str] | None = None, allow_user_data_to_cloud: bool = False,
     ) -> None:
         self.endpoint = endpoint
         self.run_config = endpoint.run_config(prompt_version)
         self._profile, self._transport, self._env, self._canaries = profile, transport, env, canaries
+        self._allow_user_data_to_cloud = allow_user_data_to_cloud
 
     def __repr__(self) -> str:
         return f"OpenAICompatAdapter({self.endpoint.name}, {self.endpoint.provider.value}, {self.endpoint.model_id})"
@@ -138,7 +141,8 @@ class OpenAICompatAdapter:
         meta = dict(endpoint=ep.name, provider=ep.provider.value, model_id=ep.model_id,
                     config_hash=cfg.fingerprint(), prompt_version=cfg.prompt_version)
         try:
-            enforce_transfer_policy(self._profile, ep, messages, data_origin, self._canaries)
+            enforce_transfer_policy(self._profile, ep, messages, data_origin, self._canaries,
+                                    allow_user_data_to_cloud=self._allow_user_data_to_cloud)
             comp = self._call(messages)
         except ModelCallError as e:
             _emit("model_call_failed", kind=e.kind.value, latency_ms=e.latency_ms, **meta)

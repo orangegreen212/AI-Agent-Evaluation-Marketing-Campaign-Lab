@@ -13,6 +13,8 @@ Error envelope (all non-2xx responses):  {"error": {"code": "...", "message": ".
 from __future__ import annotations
 
 import os
+import re
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -35,6 +37,8 @@ from .errors import ApiError
 from .model_routes import add_model_routes
 
 API_VERSION = "v1"
+MAX_UPLOAD_BYTES = 4_000_000  # Vercel rejects request bodies above ~4.5 MB, so stay below that everywhere
+ON_VERCEL = bool(os.environ.get("VERCEL"))
 DEMO_DATASET_ID = "demo-sample-campaigns"
 DEFAULT_CONFIG = ROOT / "configs" / "models.yaml"
 DEFAULT_PROFILES = ROOT / "configs" / "security_profiles"
@@ -54,6 +58,36 @@ def _origin(url: str) -> str:
     return f"{u.scheme}://{host}" + (f":{u.port}" if u.port else "")
 
 
+def _metric_dict(m) -> dict:
+    return {
+        "calc_id": m.calc_id, "metric_id": m.metric_id, "scope": m.scope, "group_key": m.group_key,
+        "value": m.value, "status": m.status.value, "unit": m.unit, "formula": m.formula,
+        "period": {"start": m.period.start.isoformat(), "end": m.period.end.isoformat()},
+        "value_undefined_reason": m.value_undefined_reason, "limitations": list(m.limitations),
+    }
+
+
+def _issue_dict(i) -> dict:
+    # Messages are built from codes and counts only (never raw cell values), so they are safe to return.
+    return {"code": i.code.value, "severity": i.severity.value, "column": i.column, "count": i.count,
+            "message": i.message, "sample_rows": list(i.sample_rows)}
+
+
+def _validation_dict(v) -> dict:
+    return {
+        "status": v.status, "can_analyze": v.can_analyze, "dataset_sha256": v.dataset_sha256,
+        "rows_read": v.rows_read, "rows_accepted": v.rows_accepted,
+        "duplicate_row_count": v.duplicate_row_count,
+        "issue_count": len(v.issues), "fatal_error_count": len(v.fatal_errors), "warning_count": len(v.warnings),
+    }
+
+
+def _safe_filename(raw: str | None) -> str:
+    name = Path((raw or "upload.csv").replace("\\", "/")).name
+    name = re.sub(r"[^A-Za-z0-9._ -]", "_", name)[:80].strip() or "upload.csv"
+    return name
+
+
 def create_app(
     *,
     config_path: str | Path = DEFAULT_CONFIG,
@@ -63,6 +97,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="AI Agent Evaluation & Safety Lab API", version=API_VERSION, docs_url="/docs")
     analysis_cache: dict[str, Any] = {}
+    allow_cloud_chat = os.environ.get("LAB_ALLOW_CLOUD_CHAT") == "1"
 
     def endpoints() -> dict:
         try:
@@ -114,6 +149,8 @@ def create_app(
         items = []
         for name, ep in sorted(endpoints().items()):
             is_local = ep.provider == ModelProvider.LOCAL
+            if is_local and ON_VERCEL:
+                continue  # a serverless function can never reach a loopback LM Studio
             api_key_configured = None
             if ep.api_key_env:  # report presence only; the value and the variable name are never returned
                 api_key_configured = bool(os.environ.get(ep.api_key_env))
@@ -121,8 +158,9 @@ def create_app(
                 "name": name,
                 "provider": ep.provider.value,
                 "data_locality": "LOCAL_MACHINE" if is_local else "EXTERNAL_PROVIDER",
-                # Policy, not a promise about the request: user-uploaded data may go only to LOCAL endpoints.
-                "accepts_user_data": is_local,
+                # Policy, not a promise about the request: chat text goes to LOCAL endpoints, or to a configured
+                # CLOUD endpoint only when the operator opted in with LAB_ALLOW_CLOUD_CHAT=1.
+                "accepts_user_data": is_local or (allow_cloud_chat and bool(api_key_configured)),
                 "model_id": ep.model_id,
                 "model_version": ep.model_version,
                 "base_url_origin": _origin(ep.base_url),
@@ -161,28 +199,58 @@ def create_app(
             "dataset_id": DEMO_DATASET_ID,
             "origin": data_origin_for(Path(dataset_path)).value,
             "filename": Path(dataset_path).name,  # file name only, never the server path
-            "validation": {
-                "status": v.status, "can_analyze": v.can_analyze, "dataset_sha256": v.dataset_sha256,
-                "rows_read": v.rows_read, "rows_accepted": v.rows_accepted,
-                "duplicate_row_count": v.duplicate_row_count,
-                "issue_count": len(v.issues), "fatal_error_count": len(v.fatal_errors), "warning_count": len(v.warnings),
-            },
+            "validation": _validation_dict(v),
             "period": {"start": a.period.start.isoformat(), "end": a.period.end.isoformat()},
             "analysis_url": f"/{API_VERSION}/datasets/demo/analysis",
+        }
+
+    @app.post("/v1/datasets/analyze")
+    async def analyze_upload(request: Request, filename: str | None = None, include_groups: bool = False) -> dict:
+        """Validate and analyze an uploaded CSV (raw request body, Content-Type text/csv).
+
+        The bytes are written to a temporary file for the duration of this request only and deleted afterwards.
+        Nothing is stored, logged or sent to a model. Invalid files return 200 with status INVALID and the issue list,
+        and `analysis: null`, so the UI can show exactly what to fix.
+        """
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+            raise ApiError(413, "FILE_TOO_LARGE", f"the file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB")
+        body = await request.body()
+        if len(body) > MAX_UPLOAD_BYTES:
+            raise ApiError(413, "FILE_TOO_LARGE", f"the file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB")
+        if not body.strip():
+            raise ApiError(400, "EMPTY_FILE", "the uploaded file is empty")
+
+        with tempfile.TemporaryDirectory(prefix="lab-upload-") as tmp:
+            path = Path(tmp) / "upload.csv"
+            path.write_bytes(body)
+            try:
+                a = analyze_csv(path)
+                v, issues = a.validation, a.validation.issues
+            except DataNotAnalyzableError as err:
+                a, v, issues = None, err.result, err.result.issues
+
+        dataset_id = f"upload-{v.dataset_sha256[:16]}"
+        period = (
+            {"start": v.date_range.start.isoformat(), "end": v.date_range.end.isoformat()} if v.date_range else None
+        )
+        metrics = [] if a is None else [_metric_dict(m) for m in a.metrics if include_groups or m.scope == "overall"]
+        return {
+            "dataset": {
+                "dataset_id": dataset_id, "origin": "USER_DATA", "filename": _safe_filename(filename),
+                "validation": _validation_dict(v), "period": period, "analysis_url": "",
+            },
+            "analysis": None if a is None else {
+                "dataset_id": dataset_id, "origin": "USER_DATA", "period": period,
+                "include_groups": include_groups, "metric_count": len(metrics), "metrics": metrics,
+            },
+            "issues": [_issue_dict(i) for i in issues],
         }
 
     @app.get("/v1/datasets/demo/analysis")
     def demo_dataset_analysis(include_groups: bool = False) -> dict:
         a = demo_analysis()
-        selected = [m for m in a.metrics if include_groups or m.scope == "overall"]
-        metrics = []
-        for m in selected:
-            metrics.append({
-                "calc_id": m.calc_id, "metric_id": m.metric_id, "scope": m.scope, "group_key": m.group_key,
-                "value": m.value, "status": m.status.value, "unit": m.unit, "formula": m.formula,
-                "period": {"start": m.period.start.isoformat(), "end": m.period.end.isoformat()},
-                "value_undefined_reason": m.value_undefined_reason, "limitations": list(m.limitations),
-            })
+        metrics = [_metric_dict(m) for m in a.metrics if include_groups or m.scope == "overall"]
         return {
             "dataset_id": DEMO_DATASET_ID,
             "origin": data_origin_for(Path(dataset_path)).value,
@@ -199,5 +267,6 @@ def create_app(
         profiles=profiles,
         transport=transport,
         allow_cloud_evaluation=os.environ.get("LAB_ALLOW_CLOUD_EVALUATION") == "1",
+        allow_cloud_chat=allow_cloud_chat,
     )
     return app
