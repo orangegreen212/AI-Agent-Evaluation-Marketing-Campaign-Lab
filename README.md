@@ -42,9 +42,15 @@ Copy `.env.example` to `.env` if you use a `.env` loader. Never commit real valu
 
 ## Run the frontend against the local API (Analyze demo)
 
-The React frontend in `frontend/` connects to this API through the Vite dev-server proxy. Only the
-**Analyze** page uses the backend (demo dataset: `GET /v1/datasets/demo` and `GET /v1/datasets/demo/analysis`).
-Analyze also accepts a CSV upload (`POST /v1/datasets/analyze`). Compare Models is demo-only.
+The React frontend in `frontend/` connects to this API through the Vite dev-server proxy. The app opens on an
+**Overview** page that explains the lab. What each page really does in this version:
+
+| Page | What it does | Data | Status |
+|---|---|---|---|
+| Evaluate & Safety | Sends the 4 built-in synthetic prompts to the chosen endpoint and scores each reply with fixed pattern checks (`POST /v1/evaluations`) | real model call, synthetic inputs | works; the run is not stored |
+| Agent Chat | Free conversation, nothing scored (`POST /v1/chat`) | real model call, your messages | works |
+| Analyze CSV | Validates a campaign CSV and computes ROAS/CPA/CTR and totals, in the browser; no model | your file, or a bundled example (labelled sample) | works |
+| Compare Models | Preview of a planned screen; shows fabricated sample data only after an explicit click | fabricated fixtures | not implemented (needs Phase 3 run storage) |
 
     # Terminal 1, from lab/
     python -m lab.api --port 8000
@@ -53,7 +59,7 @@ Analyze also accepts a CSV upload (`POST /v1/datasets/analyze`). Compare Models 
     npm ci
     npm run dev
 
-Then open the printed URL, choose Analyze, and click "Load demo dataset". The frontend leaves
+Then open the printed URL and follow the Overview. The frontend leaves
 `VITE_API_BASE_URL` empty and reaches `127.0.0.1:8000` through the proxy in `frontend/vite.config.ts`.
 The API still sends no CORS headers and binds to loopback only.
 

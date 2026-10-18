@@ -8,7 +8,11 @@ import type {
   EvaluationRunDto,
   TestSuiteDto,
 } from '@/types/backend';
-import { Panel, Button, Select, Badge, EmptyState, ErrorState, LoadingState, MetricCard } from '@/components/ui';
+import {
+  Panel, Button, Select, Badge, EmptyState, ErrorState, LoadingState, MetricCard, PageGuide, Provenance,
+} from '@/components/ui';
+import { defaultEndpointName, endpointOptionLabel, isRunnable } from '@/lib/endpoints';
+import { describeOutcome, evidenceLabel, passRateLabel, verdictBasis, SCORING_NOTE } from '@/lib/evaluationSummary';
 import { formatDateTime, formatNumber, clsx } from '@/lib/utils';
 
 type OptionsPhase = 'loading' | 'ready' | 'error';
@@ -42,6 +46,8 @@ export function EvaluateView() {
   const [suiteId, setSuiteId] = useState('');
   const [runPhase, setRunPhase] = useState<RunPhase>('idle');
   const [run, setRun] = useState<EvaluationRunDto | null>(null);
+  // The endpoint exactly as configured when the run started, so the result always shows what was really used.
+  const [runEndpoint, setRunEndpoint] = useState<EndpointDto | null>(null);
   const [runFailure, setRunFailure] = useState<RunFailure | null>(null);
 
   const loadOptions = useCallback(async () => {
@@ -51,7 +57,7 @@ export function EvaluateView() {
       const [e, s] = await Promise.all([apiClient.getEndpoints(), apiClient.getTestSuites()]);
       setEndpoints(e.endpoints);
       setSuites(s.test_suites);
-      setEndpoint(e.endpoints[0]?.name ?? '');
+      setEndpoint(defaultEndpointName(e.endpoints));
       setSuiteId(s.test_suites[0]?.id ?? '');
       setOptionsPhase('ready');
     } catch (err) {
@@ -71,10 +77,13 @@ export function EvaluateView() {
     if (!endpoint || !suiteId) return;
     setRunPhase('running');
     setRun(null);
+    setRunEndpoint(null);
     setRunFailure(null);
+    const used = endpoints.find((e) => e.name === endpoint) ?? null;
     try {
       const res = await apiClient.runEvaluation(endpoint, suiteId);
       setRun(res.run);
+      setRunEndpoint(used);
       setRunPhase('done');
     } catch (err) {
       setRunFailure({
@@ -83,16 +92,24 @@ export function EvaluateView() {
       });
       setRunPhase('error');
     }
-  }, [endpoint, suiteId]);
+  }, [endpoint, suiteId, endpoints]);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold text-ink-50">Evaluate & Safety</h1>
         <p className="mt-1 text-sm text-ink-400">
-          Run a small synthetic safety suite against one configured model. Each case is scored from the model&apos;s output.
+          Run the built-in safety test suite against one model and see, case by case, what it said and why each verdict was given.
         </p>
       </div>
+
+      <PageGuide
+        purpose="Find out how one configured model behaves on a fixed set of safety, security, privacy and format checks."
+        how="Each case is sent to the model you choose as one real request. The reply is then checked by a fixed rule (keyword and structure matching). No second AI judges the answer."
+        inputs="A model endpoint and a test suite. The prompts are the lab's own invented test text, so nothing of yours is sent. A hosted endpoint receives those test prompts."
+        output="Per case: PASS (the rule found the expected behaviour), FAIL (it did not), ERROR (the call failed, so no verdict) or SKIPPED (not run because an earlier call failed). The banner tells you whether the run was complete."
+        limits="Four cases and pattern matching cannot show a model is safe. A run is shown once and is not saved, so there is no history or before/after comparison yet."
+      />
 
       <Panel title="Run configuration">
         {optionsPhase === 'loading' && <LoadingState label="Loading endpoints and test suites…" />}
@@ -116,8 +133,8 @@ export function EvaluateView() {
                 }
               >
                 {endpoints.map((e) => (
-                  <option key={e.name} value={e.name}>
-                    {e.name} — {e.provider === 'LOCAL' ? 'local' : 'hosted'}
+                  <option key={e.name} value={e.name} disabled={!isRunnable(e)}>
+                    {endpointOptionLabel(e)}
                   </option>
                 ))}
               </Select>
@@ -134,6 +151,7 @@ export function EvaluateView() {
                 ))}
               </Select>
             </div>
+            {selectedEndpoint && <EndpointNotice endpoint={selectedEndpoint} caseCount={selectedSuite?.case_count ?? null} />}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-ink-500">
                 Each case calls the model once. If the provider fails, the run stops and the remaining cases are marked SKIPPED.
@@ -170,71 +188,120 @@ export function EvaluateView() {
         </div>
       )}
 
-      {runPhase === 'done' && run && <RunResult run={run} />}
+      {runPhase === 'done' && run && (
+        <>
+          {(run.model.endpoint !== endpoint || run.suite.id !== suiteId) && (
+            <div role="note" className="rounded-lg border border-warning-500/40 bg-warning-500/10 px-3 py-2 text-xs text-warning-400">
+              The result below is from an earlier run ({run.model.endpoint}, {run.suite.id}). Your current selection is different ({endpoint}, {suiteId}). Run again to evaluate the new selection.
+            </div>
+          )}
+          <RunResult run={run} used={runEndpoint} />
+        </>
+      )}
     </div>
   );
 }
 
-function RunResult({ run }: { run: EvaluationRunDto }) {
+const OUTCOME_STYLE = {
+  complete: 'border-surface-600 bg-surface-800/50 text-ink-200',
+  incomplete: 'border-warning-500/50 bg-warning-500/10 text-warning-400',
+  'no-verdict': 'border-danger-500/40 bg-danger-500/10 text-danger-300',
+} as const;
+
+function EndpointNotice({ endpoint, caseCount }: { endpoint: EndpointDto; caseCount: number | null }) {
+  const hosted = endpoint.provider !== 'LOCAL';
+  const n = caseCount ?? 'the';
+  return (
+    <div className="space-y-2">
+      <p
+        className={clsx(
+          'rounded-lg border px-3 py-2 text-xs',
+          hosted ? 'border-warning-500/30 bg-warning-500/5 text-warning-400' : 'border-surface-700 bg-surface-900/50 text-ink-300',
+        )}
+      >
+        {hosted
+          ? `Hosted model: the ${n} built-in synthetic test prompts will be sent to ${endpoint.base_url_origin}. None of your data is involved.`
+          : `Local model: the ${n} built-in test prompts stay on the machine where the backend runs.`}
+        {hosted && endpoint.api_key_configured === false && ' No API key is configured on the server for this endpoint, so the run will fail.'}
+      </p>
+      <dl className="flex flex-wrap gap-x-5 gap-y-1 text-2xs text-ink-500">
+        <div>model <span className="font-mono text-ink-300">{endpoint.model_id}</span></div>
+        <div>temperature <span className="font-mono text-ink-300">{endpoint.temperature}</span></div>
+        <div>max output tokens <span className="font-mono text-ink-300">{endpoint.max_output_tokens}</span></div>
+        <div>timeout <span className="font-mono text-ink-300">{endpoint.timeout_s}s</span></div>
+      </dl>
+    </div>
+  );
+}
+
+function RunResult({ run, used }: { run: EvaluationRunDto; used: EndpointDto | null }) {
+  const outcome = describeOutcome(run);
+  const pass = passRateLabel(run);
   const statusBadge =
     run.status === 'COMPLETED' ? (
-      <Badge variant="success" dot>Completed</Badge>
+      <Badge variant="neutral" dot>All cases scored</Badge>
     ) : run.status === 'PARTIAL' ? (
-      <Badge variant="warning" dot>Partial</Badge>
+      <Badge variant="warning" dot>Incomplete</Badge>
     ) : (
-      <Badge variant="danger" dot>Failed</Badge>
+      <Badge variant="danger" dot>No verdict</Badge>
     );
   const a = run.aggregate;
   const c = run.counts;
 
   return (
     <div className="space-y-5">
+      <div role="status" className={clsx('rounded-xl border px-4 py-3', OUTCOME_STYLE[outcome.tone])}>
+        <p className="text-sm font-semibold">{outcome.headline}</p>
+        <p className="mt-1 text-xs opacity-90">{outcome.meaning}</p>
+      </div>
+
+      <Provenance kinds={['live', 'builtin']}>
+        Real calls to {run.model.endpoint} ({run.model.provider === 'LOCAL' ? 'local machine' : 'hosted provider'}); the prompts are the lab&apos;s own synthetic test cases.
+      </Provenance>
+
       <Panel
         title={`${run.suite.id} v${run.suite.version}`}
         subtitle={`${run.model.endpoint} · ${run.model.provider === 'LOCAL' ? 'local machine' : 'hosted provider'} · ${run.model.model_id}`}
         actions={statusBadge}
-        accent
       >
         <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-          <Detail label="Model ID" value={run.model.model_id} mono />
-          <Detail label="Reported by provider as" value={run.model.served_model ?? 'not reported by the provider'} mono />
-          <Detail label="Config hash" value={`${run.model.config_hash.slice(0, 12)}…`} mono />
-          <Detail label="Prompt version" value={run.model.prompt_version} mono />
+          <Detail label="Model ID (configured)" value={run.model.model_id} mono />
+          <Detail label="Model reported by provider" value={run.model.served_model ?? 'not reported by the provider'} mono />
+          <Detail label="Endpoint" value={`${run.model.endpoint} (${run.model.provider === 'LOCAL' ? 'local' : 'hosted'})`} mono />
+          {used && <Detail label="Temperature / max output tokens" value={`${used.temperature} / ${used.max_output_tokens}`} mono />}
+          {used && <Detail label="Timeout" value={`${used.timeout_s}s per call`} mono />}
+          <Detail label="Config fingerprint" value={`${run.model.config_hash.slice(0, 12)}…`} mono />
+          <Detail label="Test prompts" value={`${run.model.prompt_version} (built-in, synthetic)`} mono />
           <Detail label="Security profile" value={run.security_profile} mono />
-          <Detail label="Data origin" value={run.data_origin} mono />
+          <Detail label="Data origin tag" value={run.data_origin} mono />
           <Detail label="Started" value={formatDateTime(run.started_at)} />
           <Detail label="Finished" value={formatDateTime(run.finished_at)} />
           <Detail label="Run ID" value={run.run_id} mono />
         </dl>
+        <p className="mt-3 text-2xs text-ink-500">
+          &ldquo;Data origin tag&rdquo; describes the inputs (invented test text), not the results: the replies come from a real model call.
+          This run is not stored; reloading the page removes it.
+        </p>
       </Panel>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <MetricCard
-          label="Pass rate"
-          value={a.pass_rate === null ? '—' : `${(a.pass_rate * 100).toFixed(0)}%`}
-          sublabel={`${c.PASS} passed of ${c.scored} scored`}
-          accent={a.pass_rate === 1}
-        />
-        <MetricCard
-          label="Cases"
-          value={`${c.scored}/${c.total}`}
-          sublabel={`${c.ERROR} error · ${c.SKIPPED} skipped`}
-        />
+        <MetricCard label="Passed" value={pass.value} sublabel={pass.sublabel} />
+        <MetricCard label="Cases scored" value={`${c.scored}/${c.total}`} sublabel={`${c.ERROR} error · ${c.SKIPPED} skipped (no verdict)`} />
         <MetricCard
           label="Avg latency"
           value={a.avg_latency_ms === null ? '—' : `${Math.round(a.avg_latency_ms)} ms`}
-          sublabel={a.avg_latency_ms === null ? 'no timing reported' : 'per model call'}
+          sublabel={a.avg_latency_ms === null ? 'no timing available' : 'measured by the backend per call, failed calls included'}
         />
         <MetricCard
           label="Tokens in / out"
           value={a.total_input_tokens === null ? 'not reported' : `${formatNumber(a.total_input_tokens)} / ${formatNumber(a.total_output_tokens ?? 0)}`}
-          sublabel="reported by the provider only"
+          sublabel="as reported by the provider; not counted here"
         />
       </div>
 
       <Panel
         title="Case results"
-        subtitle="PASS and FAIL come from scoring the output. ERROR means the model call failed, so no verdict exists. SKIPPED means the run stopped first."
+        subtitle="Each verdict comes from a fixed rule applied to the model's reply. Open a case to see what was expected, what the model said and which checks decided it."
       >
         <div className="mb-4 flex flex-wrap gap-2">
           <Badge variant="success">PASS {c.PASS}</Badge>
@@ -247,24 +314,32 @@ function RunResult({ run }: { run: EvaluationRunDto }) {
             <CaseCard key={item.id} item={item} />
           ))}
         </ul>
+        <p className="mt-4 text-xs text-ink-500">{SCORING_NOTE}</p>
       </Panel>
 
-      {run.limitations.length > 0 && (
-        <Panel title="Limitations">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-ink-300">
-            {run.limitations.map((l) => (
-              <li key={l}>{l}</li>
-            ))}
-          </ul>
-        </Panel>
-      )}
+      <Panel title="What this run does and does not establish">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-ink-300">
+          <li>It shows how this model, with these settings, replied to {c.total} fixed prompts at this moment.</li>
+          <li>A model can give a different reply to the same prompt next time, so a single run is one sample.</li>
+          {run.limitations.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+          <li>Without saved runs there is no baseline, so this page cannot say whether the model improved or got worse.</li>
+        </ul>
+      </Panel>
     </div>
   );
 }
 
 function CaseCard({ item }: { item: EvaluationCaseDto }) {
+  const noVerdict = item.status === 'ERROR' || item.status === 'SKIPPED';
   return (
-    <li className="rounded-lg border border-surface-700/60 bg-surface-800/30 px-4 py-3">
+    <li
+      className={clsx(
+        'rounded-lg border px-4 py-3',
+        noVerdict ? 'border-dashed border-surface-600 bg-surface-900/40' : 'border-surface-700/60 bg-surface-800/30',
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-ink-100">{item.name}</div>
@@ -278,15 +353,32 @@ function CaseCard({ item }: { item: EvaluationCaseDto }) {
         <span className="text-2xs font-medium uppercase tracking-wider text-ink-500">Expected </span>
         {item.expected}
       </p>
+      <p className="mt-1 text-xs text-ink-500">
+        <span className="font-medium uppercase tracking-wider">Basis </span>
+        {verdictBasis(item.status)}
+      </p>
       {item.failure && (
-        <p className={clsx('mt-2 text-sm', item.status === 'ERROR' || item.status === 'SKIPPED' ? 'text-warning-300' : 'text-danger-300')}>
+        <p className={clsx('mt-2 text-sm', noVerdict ? 'text-warning-300' : 'text-danger-300')}>
+          <span className="text-2xs font-medium uppercase tracking-wider opacity-80">{noVerdict ? 'Why no verdict ' : 'Why it failed '}</span>
           {item.failure}
         </p>
+      )}
+      {item.evidence.length > 0 && (
+        <div className="mt-2">
+          <div className="text-2xs font-medium uppercase tracking-wider text-ink-500">Checks that decided the verdict</div>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-ink-300">
+            {item.evidence.map((code) => (
+              <li key={code} title={code}>
+                {evidenceLabel(code)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {item.observed_excerpt !== null && (
         <div className="mt-2">
           <div className="text-2xs font-medium uppercase tracking-wider text-ink-500">
-            Observed ({item.observed_is})
+            Model reply, first 400 characters ({item.observed_is})
           </div>
           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-surface-700/50 bg-surface-900/60 px-3 py-2 font-mono text-xs text-ink-300">
             {item.observed_excerpt === '' ? '(empty output)' : item.observed_excerpt}
@@ -294,9 +386,8 @@ function CaseCard({ item }: { item: EvaluationCaseDto }) {
         </div>
       )}
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-ink-500">
-        {item.evidence.length > 0 && <span>checks: {item.evidence.join(', ')}</span>}
-        {item.latency_ms !== null && <span>{Math.round(item.latency_ms)} ms</span>}
-        {item.input_tokens !== null && <span>tokens {item.input_tokens}/{item.output_tokens ?? '—'}</span>}
+        {item.latency_ms !== null && <span>{Math.round(item.latency_ms)} ms (measured by the backend)</span>}
+        {item.input_tokens !== null && <span>tokens {item.input_tokens}/{item.output_tokens ?? '—'} (reported by the provider)</span>}
       </div>
     </li>
   );
@@ -305,8 +396,8 @@ function CaseCard({ item }: { item: EvaluationCaseDto }) {
 function CaseBadge({ status }: { status: CaseStatus }) {
   if (status === 'PASS') return <Badge variant="success">PASS</Badge>;
   if (status === 'FAIL') return <Badge variant="danger">FAIL</Badge>;
-  if (status === 'ERROR') return <Badge variant="warning">ERROR</Badge>;
-  return <Badge variant="neutral">SKIPPED</Badge>;
+  if (status === 'ERROR') return <Badge variant="warning">ERROR · no verdict</Badge>;
+  return <Badge variant="neutral">SKIPPED · no verdict</Badge>;
 }
 
 function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

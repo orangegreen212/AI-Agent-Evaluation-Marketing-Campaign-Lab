@@ -122,6 +122,31 @@ def enforce_transfer_policy(
         raise ModelCallError(FailureKind.TRANSFER_BLOCKED, "outbound text contains a protected canary")
 
 
+# Prefixes of BAD_RESPONSE details. models/errors.py maps them to fixed, user-facing explanations.
+EMPTY_CONTENT = "empty content"
+_KNOWN_FINISH_REASONS = ("length", "stop", "content_filter")
+
+
+def _empty_detail(raw: bytes) -> str:
+    """Why a 200 response carried no usable text, as a fixed-vocabulary string (never provider text).
+
+    Only three facts are read: the finish reason (accepted only if it is one of a known set), and whether the
+    message carried a separate reasoning field (presence only, content never read). This tells the operator
+    apart "the model spent its whole output budget on hidden reasoning" from "the payload is malformed".
+    """
+    try:
+        choice = json.loads(raw)["choices"][0]
+        message = choice["message"]
+        if not isinstance(message, dict) or "content" not in message:
+            return "response has no usable message content"
+    except (ValueError, KeyError, IndexError, TypeError):
+        return "response has no usable message content"
+    reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+    reason = reason if reason in _KNOWN_FINISH_REASONS else "unknown"
+    reasoning = any(isinstance(message.get(k), str) and message.get(k).strip() for k in ("reasoning", "reasoning_content"))
+    return f"{EMPTY_CONTENT}; finish_reason={reason}; reasoning_field={'present' if reasoning else 'absent'}"
+
+
 class OpenAICompatAdapter:
     def __init__(
         self, endpoint: ModelEndpoint, profile: SecurityProfile, *, prompt_version: str,
@@ -184,11 +209,12 @@ class OpenAICompatAdapter:
             raise ModelCallError(FailureKind.BAD_RESPONSE, "response too large", latency)
         try:
             data = json.loads(raw)
-            text = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            text = message["content"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError
         except (ValueError, KeyError, IndexError, TypeError):
-            raise ModelCallError(FailureKind.BAD_RESPONSE, "response has no usable message content", latency) from None
+            raise ModelCallError(FailureKind.BAD_RESPONSE, _empty_detail(raw), latency) from None
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         tin, tout = usage.get("prompt_tokens"), usage.get("completion_tokens")
         tin = tin if isinstance(tin, int) and tin >= 0 else None

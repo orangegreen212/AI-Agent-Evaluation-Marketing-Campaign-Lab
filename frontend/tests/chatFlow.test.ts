@@ -111,3 +111,9 @@ test('an invalid draft never reaches the network', async () => {
   assert.equal(s.bodies.length, 0);
   assert.equal(out.state.messages.length, 0);
 });
+
+test('an empty-reply failure shows the specific reason the backend gave, not a generic message', async () => {
+  const reason = 'the model answered, but its reply text was empty: it stopped at the output-token limit (finish_reason=length).';
+  const out = await sendTurn(initialChatState(), 'hi', createLiveClient('', scripted(err(502, 'INVALID_PROVIDER_RESPONSE', reason)).fetch));
+  assert.match(out.state.error ?? '', /unusable response: .*output-token limit \(finish_reason=length\)\. No reply is shown/);
+});

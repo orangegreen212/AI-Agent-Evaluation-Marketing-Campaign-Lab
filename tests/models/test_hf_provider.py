@@ -86,3 +86,38 @@ def test_missing_token_is_config_error_naming_no_value(bench_profile):
     with pytest.raises(ModelCallError) as e:
         ad.complete(MSG, data_origin=DataOrigin.SYNTHETIC_DEMO)
     assert e.value.kind == FailureKind.CONFIG and TOKEN not in e.value.detail
+
+
+def _bad_response_message(bench_profile, payload: bytes) -> str:
+    t = FakeTransport((200, payload))
+    ad = OpenAICompatAdapter(_hf(HF_MODEL_ID="m"), bench_profile, prompt_version="p", transport=t, env={"HF_TOKEN": TOKEN})
+    with pytest.raises(ModelCallError) as e:
+        ad.complete(MSG, data_origin=DataOrigin.SYNTHETIC_DEMO)
+    assert e.value.kind == FailureKind.BAD_RESPONSE
+    safe = describe_model_error(e.value)
+    assert safe.code == "INVALID_PROVIDER_RESPONSE"  # the code stays stable; only the explanation gets specific
+    return safe.message
+
+
+def test_empty_reply_cut_off_by_token_limit_with_reasoning_is_explained(bench_profile):
+    payload = (b'{"choices":[{"finish_reason":"length","message":{"content":null,'
+               b'"reasoning":"SECRET-REASONING-TEXT must never be echoed"}}]}')
+    msg = _bad_response_message(bench_profile, payload)
+    assert "output-token limit" in msg and "reasoning" in msg and "max_output_tokens" in msg
+    assert "SECRET-REASONING-TEXT" not in msg
+
+
+def test_empty_reply_without_reasoning_and_with_content_filter_are_distinguished(bench_profile):
+    plain = _bad_response_message(bench_profile, b'{"choices":[{"finish_reason":"stop","message":{"content":""}}]}')
+    assert "finish_reason=stop" in plain and "reasoning" not in plain
+    filtered = _bad_response_message(bench_profile, b'{"choices":[{"finish_reason":"content_filter","message":{"content":""}}]}')
+    assert "content filter" in filtered
+
+
+def test_unknown_finish_reason_text_from_the_provider_is_never_echoed(bench_profile):
+    msg = _bad_response_message(bench_profile, b'{"choices":[{"finish_reason":"<script>evil</script>","message":{"content":""}}]}')
+    assert "evil" not in msg and "finish_reason=unknown" in msg
+
+
+def test_payload_without_message_content_keeps_the_generic_explanation(bench_profile):
+    assert _bad_response_message(bench_profile, b'{"choices": []}') == "provider response contained no usable message"

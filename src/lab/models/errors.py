@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .adapter import FailureKind, ModelCallError
+from .adapter import EMPTY_CONTENT, FailureKind, ModelCallError
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,23 @@ class SafeError:
     message: str
     http_status: int  # used by the HTTP API; the evaluation runner records code and message only
     stops_run: bool  # infrastructure problem: later evaluation cases would fail for the same reason
+
+
+def _bad_response_message(detail: str) -> str:
+    """Fixed texts only. The detail comes from adapter._empty_detail, which uses a closed vocabulary."""
+    if not detail.startswith(EMPTY_CONTENT):
+        return "provider response contained no usable message"
+    base = "the model answered, but its reply text was empty"
+    if "finish_reason=length" in detail:
+        return (f"{base}: it stopped at the output-token limit (finish_reason=length)"
+                + (", and the response carries a separate reasoning field, so a reasoning model most likely spent the whole "
+                   "budget on hidden thinking" if "reasoning_field=present" in detail else "")
+                + ". Raise max_output_tokens for this endpoint or use a model that does not reason first.")
+    if "finish_reason=content_filter" in detail:
+        return f"{base}: the provider's content filter withheld the reply (finish_reason=content_filter)."
+    if "reasoning_field=present" in detail:
+        return f"{base}, but the response carries a separate reasoning field: the model put its output there instead of in the reply."
+    return f"{base} (finish_reason={detail.split('finish_reason=')[1].split(';')[0]}). The provider returned no text for this request."
 
 
 def describe_model_error(err: ModelCallError) -> SafeError:
@@ -35,5 +52,5 @@ def describe_model_error(err: ModelCallError) -> SafeError:
             return SafeError("PROVIDER_ERROR", "provider answered with a redirect, which is not followed", 502, True)
         return SafeError("PROVIDER_ERROR", f"provider returned an error ({detail})", 502, True)
     if kind == FailureKind.BAD_RESPONSE:
-        return SafeError("INVALID_PROVIDER_RESPONSE", "provider response contained no usable message", 502, True)
+        return SafeError("INVALID_PROVIDER_RESPONSE", _bad_response_message(detail), 502, True)
     return SafeError("MODEL_ERROR", "model call failed", 502, False)

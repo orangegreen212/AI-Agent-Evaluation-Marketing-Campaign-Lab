@@ -8,7 +8,7 @@
  *   sendChat                                        Agent Chat (local endpoints only; see backend policy)
  *
  * DEMO ONLY (fixtures in src/demo, no network call):
- *   listModels, listDemoTestSuites, compare         Compare Models
+ *   listModels, listDemoTestSuites, compare         Compare Models (a preview of a planned screen; shown only after an explicit click)
  *
  * Hosted on Vercel the backend runs as a serverless function on the same origin (see vercel.json), so
  * VITE_API_BASE_URL stays empty there too.

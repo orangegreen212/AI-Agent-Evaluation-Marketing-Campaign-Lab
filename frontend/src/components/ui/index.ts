@@ -8,3 +8,6 @@ export { Select } from './Select';
 export { EmptyState, ErrorState, LoadingState } from './States';
 export { ProgressBar } from './ProgressBar';
 export { DemoBanner } from './DemoBanner';
+export { SourceBadge, Provenance } from './SourceBadge';
+export type { SourceKind } from './SourceBadge';
+export { PageGuide } from './PageGuide';

@@ -16,7 +16,7 @@ import {
   type ChatState,
 } from '@/lib/chatState';
 import type { EndpointDto } from '@/types/backend';
-import { Panel, Button, Select, Badge, EmptyState, ErrorState, LoadingState } from '@/components/ui';
+import { Panel, Button, Select, Badge, EmptyState, ErrorState, LoadingState, PageGuide, Provenance } from '@/components/ui';
 import { clsx } from '@/lib/utils';
 
 export function ChatView() {
@@ -92,7 +92,7 @@ export function ChatView() {
         <div>
           <h1 className="text-xl font-semibold text-ink-50">Agent Chat</h1>
           <p className="mt-1 text-sm text-ink-400">
-            Talk with a configured model. Replies are model output: they are shown as-is and are not verified.
+            Talk with a configured model. This is for trying a model out: nothing here is scored, checked or saved.
           </p>
         </div>
         <Button
@@ -109,6 +109,15 @@ export function ChatView() {
           New conversation
         </Button>
       </div>
+
+      <PageGuide
+        purpose="Try a model in free conversation before, or alongside, running the evaluation."
+        how="Each message you send is passed to the selected model through the backend, together with the earlier turns of this conversation. The reply is shown as the model wrote it."
+        inputs="Your messages. A local model keeps them on the machine running the backend. A hosted model, available only if the operator enabled it, sends them to that provider; secret-looking text is blocked first."
+        output="Plain model text, shown as untrusted output. There are no PASS / FAIL verdicts here."
+        limits="A fluent or confident reply is not evidence of correctness or safety, and nothing here is checked. To get verdicts with evidence, use Evaluate & Safety."
+      />
+      <Provenance kinds={['live']}>Your messages go to the model you select. The history lives in this browser tab and is cleared on reload.</Provenance>
 
       <Panel
         title="Model"

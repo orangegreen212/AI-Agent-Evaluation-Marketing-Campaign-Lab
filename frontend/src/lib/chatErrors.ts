@@ -17,7 +17,7 @@ export function chatErrorMessage(err: unknown): string {
     case 'MODEL_NOT_CONFIGURED':
       return 'This model endpoint is not configured on the server (for a hosted model: API key and model id are missing).';
     case 'INVALID_PROVIDER_RESPONSE':
-      return 'The model returned an unusable response (empty or malformed). No reply is shown.';
+      return `The model returned an unusable response: ${err.message.replace(/\.$/, '')}. No reply is shown.`;
     case 'PROVIDER_AUTH_FAILED':
       return 'The model provider rejected the server\'s API key. Check the key and model id in the server environment.';
     case 'VALIDATION_ERROR':

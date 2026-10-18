@@ -8,7 +8,8 @@ import {
   MetricCard,
   Button,
   Badge,
-  DemoBanner,
+  PageGuide,
+  Provenance,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -82,9 +83,9 @@ export function AnalyzeView() {
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-ink-50">Analyze</h1>
+          <h1 className="text-xl font-semibold text-ink-50">Analyze CSV</h1>
           <p className="mt-1 text-sm text-ink-400">
-            Validation and overall metrics for the bundled demo dataset or for a CSV you choose. Everything is computed in your browser.
+            Check a marketing-campaign CSV for problems and calculate its key metrics. No AI model is involved on this page.
           </p>
         </div>
         {phase === 'success' && source === 'demo' && (
@@ -99,13 +100,23 @@ export function AnalyzeView() {
         )}
       </div>
 
-      <DemoBanner
-        message={
-          source === 'upload' && phase === 'success'
-            ? 'Source: your CSV (USER_DATA). It was validated and analyzed in this browser tab: it was not uploaded, stored or sent to any model.'
-            : 'Source: synthetic demo dataset (SYNTHETIC_DEMO), or upload your own CSV below.'
-        }
+      <PageGuide
+        purpose="Make sure a campaign file is usable and get its totals and ratios (ROAS, CPA, CTR) before trusting any number built on it."
+        how="Your browser reads the file, applies the same validation rules as the backend, and calculates the metrics with fixed formulas. Nothing is uploaded and no model is called."
+        inputs="A CSV you choose, or the bundled example file. Required columns are listed in the upload box."
+        output="A validation status with a list of problems to fix, then overall metrics. A file with fatal errors gets no metrics, by design."
+        limits="This checks the file and does the arithmetic. It does not say whether the campaigns were good, and it is separate from the model evaluation pages."
       />
+
+      {phase === 'success' && data ? (
+        <Provenance kinds={source === 'upload' ? ['your-data'] : ['sample']}>
+          {source === 'upload'
+            ? `Your file ${data.filename}. Validated and analysed in this tab; not uploaded, stored or sent to any model.`
+            : 'The bundled example file (invented numbers). The calculations are real, but this is not your data.'}
+        </Provenance>
+      ) : (
+        <Provenance kinds={[]}>No dataset analysed yet. Results will be labelled with where they come from.</Provenance>
+      )}
 
       <Panel
         title="Upload a CSV"
@@ -138,20 +149,20 @@ export function AnalyzeView() {
       {phase === 'idle' && (
         <EmptyState
           icon={<FileSpreadsheet className="h-8 w-8" />}
-          title="Demo dataset not loaded"
-          description="Load the bundled synthetic dataset to see its validation status and overall metrics."
+          title="No dataset analysed yet"
+          description="Choose your own CSV above, or try the bundled example file to see what the results look like. The example is labelled as sample data."
           action={
-            <Button variant="primary" onClick={load}>
-              Load demo dataset
+            <Button variant="secondary" onClick={load}>
+              Try the example dataset
             </Button>
           }
         />
       )}
 
-      {phase === 'loading' && <LoadingState label="Analyzing the demo dataset…" />}
+      {phase === 'loading' && <LoadingState label="Analysing the example dataset…" />}
 
       {phase === 'error' && (
-        <ErrorState title="Could not load the demo analysis" message={error} onRetry={load} />
+        <ErrorState title="Could not load the example dataset" message={error} onRetry={load} />
       )}
 
       {phase === 'success' && data && <AnalyzeResults data={data} source={source} />}
@@ -174,7 +185,7 @@ function AnalyzeResults({ data, source }: { data: AnalyzeViewData; source: 'demo
     <div className="space-y-5">
       <Panel
         title="Dataset validation"
-        subtitle={`${data.filename} · ${data.period ? `${data.period.start} → ${data.period.end}` : 'no valid dates'} · ${data.origin}`}
+        subtitle={`${data.filename} · ${data.period ? `${data.period.start} → ${data.period.end}` : 'no valid dates'} · ${source === 'upload' ? 'your file' : 'bundled example (sample data)'}`}
         actions={statusBadge}
       >
         <div className="mb-4 flex flex-wrap gap-3">
@@ -213,7 +224,7 @@ function AnalyzeResults({ data, source }: { data: AnalyzeViewData; source: 'demo
         )}
       </Panel>
 
-      <Panel title="Overall metrics" subtitle="Scope: overall (all rows in the dataset)">
+      <Panel title="Overall metrics" subtitle="Scope: all accepted rows together. Fixed formulas, no model; the formula is shown under each value.">
         {data.metrics.length === 0 ? (
           <p className="text-sm text-ink-400">
             {data.validation.canAnalyze
