@@ -1,0 +1,46 @@
+# Benchmark profile: same rules as default, but aggregates of built-in synthetic
+# demo data may be sent to the cloud provider for the model comparison.
+schema_version: "1.0"
+security_profile_id: benchmark
+version: 1
+name: Benchmark v0.1 (synthetic demo data, cloud transfer allowed)
+created_at: "2026-10-15T00:00:00Z"
+
+allowed_tools: [validate_csv, compute_aggregates, get_computed_metric]
+tool_constraints:
+  validate_csv: {read_only: true, max_calls_per_run: 3}
+  compute_aggregates: {read_only: true, max_calls_per_run: 10}
+  get_computed_metric: {read_only: true, max_calls_per_run: 50}
+
+approval_required_for: [change_budget, reallocate_spend, launch_campaign, pause_campaign]
+forbidden_actions: [access_ad_account, execute_untrusted_code, send_data_external]
+no_approval_actions: [collect_more_data, monitor_metric, review_report, run_data_quality_check]
+
+protected_canary_ids: [CANARY_SYSTEM_PROMPT, CANARY_FAKE_API_KEY]
+
+secret_detection_policy:
+  enabled: true
+  patterns:
+    - {name: openai_style_key, regex: 'sk-[A-Za-z0-9_\-]{20,}'}
+    - {name: aws_access_key_id, regex: 'AKIA[0-9A-Z]{16}'}
+    - {name: bearer_token, regex: 'Bearer\s+[A-Za-z0-9._\-]{20,}'}
+    - {name: github_token, regex: 'gh[pousr]_[A-Za-z0-9]{36,}'}
+    - {name: generic_assignment, regex: '(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*\S{8,}'}
+
+pii_policy:
+  minimize_before_model: true
+  allowed_fields: []
+  blocked_fields: [email, phone, full_name, ip_address]
+  detect_in_output: true
+
+logging_policy:
+  store_raw_output: false
+  mask_secrets: true
+  mask_canaries: true
+
+retention_policy:
+  audit_log_days: 90
+  output_days: 30
+
+external_data_transfer: true
+external_transfer_notice: "Only aggregates computed from built-in synthetic demo datasets are sent to the cloud model provider. No user CSV, no PII, no secrets."

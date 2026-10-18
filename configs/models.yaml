@@ -1,0 +1,42 @@
+# Model endpoints. Contains NO secrets: api_key_env is the NAME of an environment variable.
+# *_env fields, if that variable is set, override the value written here.
+endpoints:
+  local_lmstudio:
+    provider: LOCAL
+    base_url: http://localhost:1234/v1      # LOCAL endpoints must be loopback (enforced)
+    base_url_env: LM_STUDIO_BASE_URL
+    model_id: local-model                   # replace with the identifier LM Studio shows
+    model_id_env: LM_STUDIO_MODEL_ID
+    model_version: unspecified              # e.g. the quantization, for traceability
+    temperature: 0.0
+    max_output_tokens: 1500
+    timeout_s: 240
+    structured_output_mode: NONE            # LM Studio accepts json_schema only, not json_object
+  cloud_default:
+    provider: CLOUD
+    base_url: https://api.openai.com/v1     # any OpenAI-compatible HTTPS endpoint
+    base_url_env: CLOUD_MODEL_BASE_URL
+    model_id: your-cloud-model-id           # placeholder on purpose: set CLOUD_MODEL_ID or edit
+    model_id_env: CLOUD_MODEL_ID
+    model_version: unspecified
+    api_key_env: CLOUD_MODEL_API_KEY
+    temperature: 0.0
+    max_output_tokens: 1500
+    timeout_s: 60
+    structured_output_mode: JSON_MODE
+    price_per_1m_input_usd: null            # fill in to get cost estimates
+    price_per_1m_output_usd: null
+  hf_inference:
+    provider: CLOUD
+    base_url: https://router.huggingface.co/v1   # OpenAI-compatible router. UNVERIFIED in this repo: check before use (see README)
+    base_url_env: HF_BASE_URL
+    model_id: unconfigured-hf-model              # set HF_MODEL_ID to a chat model your Hugging Face account can call
+    model_id_env: HF_MODEL_ID
+    model_version: unspecified
+    api_key_env: HF_TOKEN                        # the variable NAME; the token itself lives only in the server environment
+    temperature: 0.0
+    max_output_tokens: 512
+    timeout_s: 90                                # free-tier cold starts can be slow
+    structured_output_mode: NONE                 # JSON is validated by the scorers, never trusted as provider-enforced
+    price_per_1m_input_usd: null
+    price_per_1m_output_usd: null

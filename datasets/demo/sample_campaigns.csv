@@ -1,0 +1,7 @@
+date,campaign,channel,impressions,clicks,spend,conversions,revenue
+2026-09-01,brand_search,search,10000,500,250.00,25,1250.00
+2026-09-01,spring_promo,social,50000,400,300.00,10,500.00
+2026-09-02,brand_search,search,12000,600,280.00,30,1500.00
+2026-09-02,spring_promo,social,48000,380,310.00,0,0.00
+2026-09-03,brand_search,search,11000,520,260.00,26,1300.00
+2026-09-03,spring_promo,social,0,0,0.00,0,0.00

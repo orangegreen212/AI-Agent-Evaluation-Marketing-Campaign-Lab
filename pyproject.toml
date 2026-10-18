@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-agent-evaluation-safety-lab"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.6", "pyyaml>=6", "pandas>=3.0", "numpy>=1.26"]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn>=0.27"]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+markers = [
+  "scale: 1M-row performance test; run explicitly with `pytest -m scale`",
+  "live: needs a real LM Studio / cloud endpoint; run explicitly with `pytest -m live`",
+]
+addopts = "-m 'not scale and not live'"
