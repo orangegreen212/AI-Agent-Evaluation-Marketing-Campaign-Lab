@@ -82,6 +82,13 @@ test('an HTML 404 (no backend behind the site) is explained, and does not tell a
   assert.doesNotMatch(err.message, /python -m lab\.api/);
 });
 
+test("a static host's JSON 404 (numeric code) is reported as a missing backend, not shown as a backend error", async () => {
+  const f = fakeFetch(() => json({ error: { code: '404', message: 'The page could not be found' } }, 404));
+  const err = await rejection(createLiveClient('', f.fetch).getDemoDataset());
+  assert.equal(err.code, 'NOT_AN_API_RESPONSE');
+  assert.match(err.message, /VITE_API_BASE_URL/);
+});
+
 test('a 200 response that is not JSON is rejected instead of crashing the parser', async () => {
   const f = fakeFetch(() => new Response('<!doctype html><html></html>', { status: 200 }));
   const err = await rejection(createLiveClient('', f.fetch).getEndpoints());

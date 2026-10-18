@@ -97,7 +97,10 @@ export function createLiveClient(baseUrl: string, fetchImpl: FetchLike = default
 
     if (!res.ok) {
       const envelope = body as Partial<ErrorEnvelope> | null;
-      if (envelope?.error?.message) {
+      // Static hosts such as Vercel answer an unknown path with JSON shaped like our envelope, but with a numeric
+      // code (for example "404"). Our backend always uses a word code, so a numeric one means no backend is there.
+      const hostCode = res.status === 404 && /^\d+$/.test(envelope?.error?.code ?? '');
+      if (envelope?.error?.message && !hostCode) {
         throw new ApiError(envelope.error.message, res.status, envelope.error.code ?? null);
       }
       throw new ApiError(
