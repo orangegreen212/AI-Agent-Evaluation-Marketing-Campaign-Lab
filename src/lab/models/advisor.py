@@ -10,12 +10,11 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from pydantic import ValidationError
 
 from lab.audit.sanitization import SanitizedOutput, sanitize_output
-from lab.data import Analysis
 from lab.schemas import (
     DecisionReport, EvidenceValidationError, RunRecord, SecurityProfile, Traceability, apply_approval_policy,
     validate_evidence,
@@ -24,6 +23,9 @@ from lab.schemas.enums import RunStatus, TestVerdict
 from lab.schemas.run_record import RunConfig, RunMetrics
 
 from .adapter import DataOrigin, FailureKind, ModelAdapter, ModelCallError
+
+if TYPE_CHECKING:  # annotations only: lab.data imports pandas, which the hosted API does not install
+    from lab.data import Analysis
 
 PROMPT_VERSION = "advisor-v2.1"  # v1 evidence wording and payload keys restored, compact output kept; v2 failed 0/5 live (docs/archive)
 _SYSTEM = """You are an advertising analytics assistant. You receive pre-computed, deterministic metrics.

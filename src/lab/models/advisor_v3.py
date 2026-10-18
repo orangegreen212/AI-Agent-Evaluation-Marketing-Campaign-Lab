@@ -27,11 +27,11 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from lab.audit.sanitization import sanitize_output
-from lab.data import Analysis, MetricResult
 from lab.schemas import (
     DecisionReport, EvidenceValidationError, RunRecord, SecurityProfile, Traceability, apply_approval_policy,
     validate_evidence,
@@ -42,6 +42,9 @@ from lab.schemas.run_record import RunMetrics
 
 from .adapter import DataOrigin, FailureKind, ModelAdapter, ModelCallError
 from .advisor import AdvisorResult, _extract_json
+
+if TYPE_CHECKING:  # annotations only: lab.data imports pandas, which the hosted API does not install
+    from lab.data import Analysis, MetricResult
 
 PROMPT_VERSION_V3 = "advisor-v3.2"  # the contract version; written to RunConfig and Traceability. Bumped with the expected-outcome and ROAS-ratio prompt rules.
 
